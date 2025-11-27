@@ -243,12 +243,17 @@ def get_cid_by_nickname(nickname: str) -> Optional[int]:
 
 # 从参数中提取角色昵称，返回角色ID和剩余参数
 def extract_nickname_from_args(args: str, default=None) -> Tuple[Optional[str], str]:
+    best_match: str | None = default # 最匹配的一项，也就是匹配的长度最长的一项
+    max_length: int = 0 # 最匹配的一项的长度
     for item in get_character_nickname_data():
         for nickname in item.nicknames:
             if nickname in args:
-                args = args.replace(nickname, "").strip()
-                return nickname, args
-    return default, args
+                current_length = len(nickname)
+                if current_length > max_length:
+                    best_match = nickname
+    if best_match is not None:
+        args = args.replace(best_match, "").strip()
+    return best_match, args
 
 # 获取所有(昵称, 角色ID)对
 def get_all_nickname_cid_pairs() -> List[Tuple[str, int]]:
