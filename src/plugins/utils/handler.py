@@ -142,6 +142,47 @@ bot_module._check_at_me = _mp_check_at_me
 bot_module._check_reply = _mp_check_reply
 
 
+# ============================ BOT管理 ============================ #
+
+async def get_bot_by_id(bot_id: int) -> Bot:
+    """
+    通过bot_id获取Bot对象
+    """
+    bot = get_bots().get(str(bot_id))
+    if not bot:
+        raise Exception(f'找不到id为{bot_id}的Bot')
+    return bot
+
+def get_all_bots() -> list[Bot]:
+    """
+    获取所有Bot对象
+    """
+    return list(get_bots().values())
+
+async def get_group_all_bots(group_id: int, refresh: bool = False) -> list[Bot]:
+    """
+    通过群号获取可用的Bot对象列表
+    """
+    bots = get_all_bots()
+    in_group = await asyncio.gather(*[check_in_group(bot, group_id, refresh) for bot in bots])
+    return [list(bot for bot, ok in zip(bots, in_group) if ok)]
+
+async def get_group_bot(group_id: int, refresh: bool = False) -> Bot:
+    """
+    通过群号获取对应的Bot对象
+    优先选择配置指定的bot，然后返回第一个可用的bot
+    """
+    bots = await get_group_all_bots(group_id, refresh)
+    if not bots:
+        raise Exception(f'群聊{group_id}无可用的Bot')
+    group_bot_config = global_config.get('group_bots', {})
+    for bot_id in group_bot_config.get(str(group_id), []):
+        for bot in bots:
+            if int(bot.self_id) == int(bot_id):
+                return bot
+    return min(bots, key=lambda b: int(b.self_id))
+
+
 # ============================ API调用 ============================ #
 
 @dataclass
@@ -647,11 +688,11 @@ def is_group_msg(event: MessageEvent):
     """
     return hasattr(event, 'group_id') and event.group_id is not None
 
-async def check_in_group(bot: Bot, group_id: int):
+async def check_in_group(bot: Bot, group_id: int, refresh: bool = False) -> bool:
     """
     检查bot是否加入了某个群
     """
-    return int(group_id) in await get_group_ids(bot)
+    return int(group_id) in await get_group_ids(bot, refresh)
 
 def check_in_blacklist(user_id: int):
     """
@@ -2215,7 +2256,14 @@ async def _(ctx: HandlerContext):
         group_id = ctx.group_id
     group_name = await get_group_name(ctx.bot, group_id)
     set_group_enable(group_id, True)
-    return await ctx.asend_reply_msg(f'已启用群聊 {group_name} ({group_id}) BOT服务')
+    msg = f'已启用群聊 {group_name} ({group_id}) BOT服务'
+    # 检查是否存在一群多bot
+    bots = await get_group_all_bots(ctx.group_id, refresh=True)
+    if len(bots) > 1:
+        msg += f"\n注意: 该群聊存在多个bot连接同一个Lunabot后端({','.join([str(b.self_id) for b in bots])})，" \
+                "Lunabot后端并非设计用于一个群聊连接多个Bot使用，将优先使用配置指定的第一个Bot，" \
+                "若未配置则选择ID最小的Bot，其他Bot将被禁用"
+    return await ctx.asend_reply_msg(msg)
 
 # 设置群聊关闭
 _handler = CmdHandler(['/disable'], utils_logger, check_group_enabled=False)
