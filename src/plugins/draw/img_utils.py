@@ -5,6 +5,8 @@ from itertools import chain
 from PIL import Image, ImageSequence
 import numpy as np
 from pathlib import Path
+from io import BytesIO
+import os.path as osp
 
 
 # ============================ 透明GIF处理 ============================ #
@@ -162,13 +164,31 @@ def _save_transparent_gif(images: List[Image.Image], durations: Union[int, List[
 
 # ============================ 工具函数 ============================ #
 
-def open_image(file_path: Union[str, Path], load=True) -> Image.Image:
+def open_image(file_path: Union[str, Path, BytesIO], load=True) -> Image.Image:
     """
-    打开图片文件并返回PIL Image对象，默认直接load
+    - 打开图片文件并返回 PIL Image 对象
+    - 自动支持 SVG（通过 CairoSVG rasterize）
+    - PNG/JPG/WebP 等位图保持原行为
+    - 任何失败都会抛出异常并报错
     """
-    img = Image.open(file_path)
+    if hasattr(file_path, "read"):
+        img = Image.open(file_path)
+
+    else:
+        file_path = str(file_path)
+        ext = osp.splitext(file_path)[1].lower()
+
+        if ext == ".svg":
+            import cairosvg
+
+            png_bytes = cairosvg.svg2png(url=file_path)
+            img = Image.open(BytesIO(png_bytes)).convert("RGBA")
+        else:
+            img = Image.open(file_path)
+
     if load:
         img.load()
+
     return img
 
 def is_animated(image: Union[str, Image.Image]) -> bool:
